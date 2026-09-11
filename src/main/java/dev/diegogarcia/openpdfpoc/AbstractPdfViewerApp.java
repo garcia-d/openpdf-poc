@@ -175,14 +175,19 @@ public abstract class AbstractPdfViewerApp extends JFrame {
                     if (cause instanceof PasswordResolver.PasswordEntryCancelledException) {
                         statusLabel.setText("Cancelled.");
                     } else {
-                        showError("Could not open \"" + file.getName() + "\": " + cause.getMessage());
+                        showError("Could not open \"" + file.getName() + "\": " + describe(cause));
                         statusLabel.setText("Failed to open file.");
                     }
                 } catch (Exception ex) {
-                    showError("Unexpected error: " + ex.getMessage());
+                    showError("Unexpected error: " + describe(ex));
                 }
             }
         }.execute();
+    }
+
+    /** {@code Throwable#getMessage()}, falling back to the exception's class name when it's null. */
+    private static String describe(Throwable t) {
+        return t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
     }
 
     private void loadDocument(File file, DocumentSummary summary) {

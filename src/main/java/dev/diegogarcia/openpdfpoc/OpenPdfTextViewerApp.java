@@ -61,17 +61,22 @@ public class OpenPdfTextViewerApp extends AbstractPdfViewerApp {
 
     @Override
     protected void renderPage(int pageNumber) {
+        String noTextMessage = "[Page " + pageNumber + " has no extractable text. OpenPDF can read PDF "
+                + "structure and text but does not rasterize page images, so pages that are "
+                + "purely graphical (e.g. scanned pages) show no content here.]";
         try {
             String text = new PdfTextExtractor(currentReader).getTextFromPage(pageNumber);
-            if (text == null || text.trim().isEmpty()) {
-                text = "[Page " + pageNumber + " has no extractable text. OpenPDF can read PDF "
-                        + "structure and text but does not rasterize page images, so pages that are "
-                        + "purely graphical (e.g. scanned pages) show no content here.]";
-            }
-            contentArea.setText(normalizeForDisplay(text));
+            contentArea.setText(normalizeForDisplay(text == null || text.trim().isEmpty() ? noTextMessage : text));
             contentArea.setCaretPosition(0);
         } catch (IOException e) {
             contentArea.setText("Could not extract text from page " + pageNumber + ": " + e.getMessage());
+        } catch (NullPointerException e) {
+            // OpenPDF's PdfTextExtractor reads a page's /Contents entry with no null
+            // check and throws an uncaught NPE when it's absent - which, per the PDF
+            // spec, just means the page is empty, the same as if extraction returned
+            // no text. Treat it the same way instead of surfacing a raw NPE (with a
+            // null getMessage()) as an "unexpected error" to the user.
+            contentArea.setText(noTextMessage);
         }
     }
 

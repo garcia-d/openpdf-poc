@@ -120,6 +120,46 @@ This is a compatibility workaround, not a design preference: it does not
 help with genuinely non-Latin scripts (CJK, Arabic, etc.), which can still
 hit the same underlying bug on an affected environment.
 
+## Known OpenPDF quirk: out-of-range /P permissions
+
+Some PDFs open with no prompt at all in other readers (e.g. macOS Preview)
+but get flagged by this app as password-protected, and no password -
+correct or not - ever unlocks them. This happens when the PDF's
+`/Encrypt` dictionary writes its `/P` (permissions) entry as the equivalent
+*unsigned* 32-bit decimal (e.g. `4294965956`) instead of the signed decimal
+most PDF writers use for the same bit pattern (`-1340`) - both are
+spec-legal, since they encode the identical 4-byte value.
+
+OpenPDF 1.3.x stores every PDF number as a Java `double`
+(`com.lowagie.text.pdf.PdfNumber`), and `PdfNumber#intValue()` narrows it
+with a plain `(int)` cast. Java's narrowing double-to-int conversion
+*saturates* rather than wraps for a value outside the `int` range, so a `/P`
+value like `4294965956` is misread as `Integer.MAX_VALUE` instead of
+`-1340`. That corrupts the encryption key OpenPDF derives, so its own
+recomputed `/U` check fails for every password it's given - including a
+correct, empty one - and `PdfReader` reports `BadPasswordException` for a
+document that isn't actually password-protected. (This isn't fixed in newer
+OpenPDF releases either - the same saturating cast is still present as of
+`1.3.43`.)
+
+`PasswordResolver` works around this: before treating a `BadPasswordException`
+as a real password prompt, it scans the plaintext `/Encrypt` dictionary bytes
+(never encrypted, so safe to inspect before any password is known) for an
+out-of-range `/P` value near a `/Filter/Standard` marker, and rewrites it to
+its correctly signed form before retrying. Every other file is returned
+untouched - this only ever activates as a fallback after the first,
+unmodified open attempt fails.
+
+A minimal PDF fixed up this way can also have no `/Contents` entry on a
+page at all (spec-legal - it just means the page is empty), which trips a
+*second*, unrelated OpenPDF bug: `PdfTextExtractor` reads `/Contents` with
+no null check and throws an uncaught `NullPointerException` (not
+`IOException`) instead of returning empty text. `OpenPdfTextViewerApp`
+catches that specifically and shows the same "no extractable text" message
+used for other content-free pages, rather than letting it surface as a raw,
+message-less "Unexpected error: null". The PDFBox render engine isn't
+affected - it renders an empty page as a blank image with no error.
+
 ## Toolchain
 
 `build.gradle` pins the Java toolchain to language version 8
@@ -127,6 +167,15 @@ hit the same underlying bug on an affected environment.
 JDK 8 it locates automatically (e.g. one installed via SDKMAN!, asdf, or
 Gradle's own toolchain provisioning) regardless of which JDK launched
 Gradle itself.
+
+The Gradle wrapper itself is pinned to **Gradle 8.14.3** in
+`gradle/wrapper/gradle-wrapper.properties`, not a newer 9.x release: Gradle
+9 raised the *minimum JVM Gradle itself runs on* to 17+, so it won't launch
+at all on a machine whose only available JDK is 8, regardless of what the
+toolchain block above targets. `8.14.3` is the newest Gradle release still
+able to run on a JDK 8 daemon. This is unrelated to the JDK 8 *toolchain*
+requirement above - that always applied, independent of which Gradle
+version is doing the compiling.
 
 ## Dependency notes
 

@@ -156,6 +156,12 @@ toolbar, checked by default) that gates this fallback. Uncheck it to force
 OpenPDF build (e.g. one where `PdfNumber#intValue()` no longer saturates)
 without this app's own workaround masking whether the fix actually works.
 
+Since no official OpenPDF release fixes this yet, [`standalone/PasswordResolver.java`](standalone/PasswordResolver.java)
+is a copy-paste-ready extract of this same class - self-contained (no
+dependency on anything else in this repo) and license-headered so it can be
+reused in other projects hitting the same bug. See
+[`standalone/README.md`](standalone/README.md).
+
 A minimal PDF fixed up this way can also have no `/Contents` entry on a
 page at all (spec-legal - it just means the page is empty), which trips a
 *second*, unrelated OpenPDF bug: `PdfTextExtractor` reads `/Contents` with

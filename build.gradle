@@ -3,14 +3,29 @@ plugins {
 }
 
 repositories {
+    // Checked first so the locally-installed, patched OpenPDF build below
+    // resolves from here instead of Maven Central.
+    mavenLocal()
     mavenCentral()
 }
 
 dependencies {
     // 1.3.x is the OpenPDF branch built for Java 8. Versions from 1.3.37 onward
     // ship a pom that pulls in a Java 9+ baseline, so this is the newest release
-    // still confirmed to run on JDK 8 (see LibrePDF/OpenPDF issue #1033).
-    implementation 'com.github.librepdf:openpdf:1.3.36'
+    // line still confirmed to run on JDK 8 (see LibrePDF/OpenPDF issue #1033).
+    //
+    // Pinned to a locally-built 1.3.44-SNAPSHOT (installed via `mvn install` from
+    // the `fix/1.3-java8/pdfnumber-int-overflow` branch, not published to Maven
+    // Central) instead of the upstream 1.3.36 release, because it carries a fix
+    // for the "Known OpenPDF quirk: out-of-range /P permissions" bug documented
+    // in README.md: PdfNumber#intValue() saturated an out-of-range /P value
+    // (written by some producers as an unsigned 32-bit decimal, e.g.
+    // 4294965956 instead of -1340) to Integer.MAX_VALUE instead of truncating
+    // it, corrupting the derived decryption key and making PdfReader reject
+    // every password - including a correct, empty one - for such a document.
+    // Re-run `mvn -pl openpdf -am install -DskipTests` from that branch to
+    // refresh this artifact in ~/.m2 after pulling further changes to it.
+    implementation 'com.github.librepdf:openpdf:1.3.44-SNAPSHOT'
 
     // OpenPDF declares BouncyCastle as an optional dependency, but it is
     // actually required at runtime to decrypt password-protected PDFs

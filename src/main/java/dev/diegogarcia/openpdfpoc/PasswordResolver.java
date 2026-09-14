@@ -37,7 +37,10 @@ import java.util.regex.Pattern;
  * user password at all - e.g. exported by tools that write the
  * {@code /Encrypt} dictionary's {@code /P} permissions entry as an unsigned
  * 32-bit decimal - falsely appear password-protected to {@code PdfReader}.
- * See the README, "Known OpenPDF quirk: out-of-range /P permissions".</p>
+ * See the README, "Known OpenPDF quirk: out-of-range /P permissions". That
+ * patch is applied only when {@link #resolve}'s {@code applyKnownBugPatch}
+ * parameter is {@code true} (wired to a checkbox both viewer engines share),
+ * so a patched OpenPDF build can be tested with it turned off.</p>
  */
 final class PasswordResolver {
 
@@ -77,15 +80,22 @@ final class PasswordResolver {
      * cancels ({@link PasswordEntryCancelledException}), or the attempt limit
      * is reached ({@link IOException}).
      *
-     * @param parent component to center password dialogs on
-     * @param file   the PDF file to open
+     * @param parent          component to center password dialogs on
+     * @param file            the PDF file to open
+     * @param applyKnownBugPatch whether to try {@link #patchOutOfRangePermissions} as
+     *                        a fallback when the first, unmodified open attempt fails
+     *                        with {@link BadPasswordException}. Wired to a checkbox in
+     *                        {@link AbstractPdfViewerApp}'s shared top panel, checked
+     *                        by default; pass {@code false} to open the file as-is
+     *                        instead - e.g. to test whether a patched OpenPDF build no
+     *                        longer needs this workaround at all.
      */
-    static Resolved resolve(Component parent, java.io.File file) throws IOException {
+    static Resolved resolve(Component parent, java.io.File file, boolean applyKnownBugPatch) throws IOException {
         byte[] originalBytes = Files.readAllBytes(file.toPath());
         try {
             return new Resolved(new PdfReader(originalBytes), null);
         } catch (BadPasswordException firstAttempt) {
-            byte[] patchedBytes = patchOutOfRangePermissions(originalBytes);
+            byte[] patchedBytes = applyKnownBugPatch ? patchOutOfRangePermissions(originalBytes) : null;
             if (patchedBytes != null) {
                 try {
                     // No password field on this result: the document was never

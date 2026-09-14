@@ -51,7 +51,7 @@ public class OpenPdfTextViewerApp extends AbstractPdfViewerApp {
 
     @Override
     protected DocumentSummary openDocument(File file) throws Exception {
-        PasswordResolver.Resolved resolved = PasswordResolver.resolve(this, file);
+        PasswordResolver.Resolved resolved = PasswordResolver.resolve(this, file, isBytePatchEnabled());
         currentReader = resolved.reader;
 
         Map<String, String> info = currentReader.getInfo();

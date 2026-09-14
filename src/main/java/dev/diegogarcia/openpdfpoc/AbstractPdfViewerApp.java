@@ -2,6 +2,7 @@ package dev.diegogarcia.openpdfpoc;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
@@ -38,6 +39,7 @@ public abstract class AbstractPdfViewerApp extends JFrame {
     private final JButton previousButton = new JButton("< Previous");
     private final JButton nextButton = new JButton("Next >");
     private final JLabel pageLabel = new JLabel("-");
+    private final JCheckBox patchBytesCheckBox = new JCheckBox("Patch /P bug bytes", true);
 
     /** Directory the file chooser last navigated to; null opens to its own default. */
     private File lastDirectory;
@@ -92,8 +94,24 @@ public abstract class AbstractPdfViewerApp extends JFrame {
      * opened document. Runs on a background thread (not the EDT); throw
      * {@link PasswordResolver.PasswordEntryCancelledException} (or let it
      * propagate) if the user cancels the password prompt.
+     *
+     * <p>Implementations should pass {@link #isBytePatchEnabled()} through to
+     * {@link PasswordResolver#resolve}, so the checkbox in the shared top
+     * panel controls both engines the same way.</p>
      */
     protected abstract DocumentSummary openDocument(File file) throws Exception;
+
+    /**
+     * Whether {@link PasswordResolver} should apply its known-bug byte patch
+     * (see {@link PasswordResolver#resolve}) before falling back to a real
+     * password prompt. Backed by a checkbox in the shared top panel, checked
+     * by default to preserve this app's original behavior; uncheck it to
+     * open files as-is instead - e.g. to confirm that a patched OpenPDF
+     * build no longer needs the workaround at all.
+     */
+    protected final boolean isBytePatchEnabled() {
+        return patchBytesCheckBox.isSelected();
+    }
 
     /** Renders the given 1-based page number into the content component. Runs on the EDT. */
     protected abstract void renderPage(int pageNumber);
@@ -122,9 +140,18 @@ public abstract class AbstractPdfViewerApp extends JFrame {
         left.add(openButton);
         left.add(fileLabel);
 
+        patchBytesCheckBox.setToolTipText("<html>When checked (default), works around a known OpenPDF 1.3.x bug "
+                + "where an out-of-range /P permissions value makes an unprotected PDF falsely "
+                + "look password-protected (see README, \"Known OpenPDF quirk\"). Uncheck to open "
+                + "the next file as-is instead - useful for testing a patched OpenPDF build that "
+                + "fixes this itself.</html>");
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        right.add(patchBytesCheckBox);
+
         JPanel top = new JPanel(new BorderLayout());
         top.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
         top.add(left, BorderLayout.WEST);
+        top.add(right, BorderLayout.EAST);
         return top;
     }
 

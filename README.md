@@ -150,6 +150,12 @@ its correctly signed form before retrying. Every other file is returned
 untouched - this only ever activates as a fallback after the first,
 unmodified open attempt fails.
 
+Both viewer windows share a "Patch /P bug bytes" checkbox (top-right of the
+toolbar, checked by default) that gates this fallback. Uncheck it to force
+`PasswordResolver` to open the file as-is - useful for testing a patched
+OpenPDF build (e.g. one where `PdfNumber#intValue()` no longer saturates)
+without this app's own workaround masking whether the fix actually works.
+
 A minimal PDF fixed up this way can also have no `/Contents` entry on a
 page at all (spec-legal - it just means the page is empty), which trips a
 *second*, unrelated OpenPDF bug: `PdfTextExtractor` reads `/Contents` with

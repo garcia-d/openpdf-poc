@@ -41,6 +41,14 @@ public abstract class AbstractPdfViewerApp extends JFrame {
     private final JLabel pageLabel = new JLabel("-");
     private final JCheckBox patchBytesCheckBox = new JCheckBox("Patch /P bug bytes", true);
 
+    // PasswordResolver itself has no Swing dependency - it only knows about
+    // the PasswordPrompt interface (see PasswordResolver.PasswordPrompt).
+    // This is this app's one Swing-based implementation of it, shared by
+    // both viewer engines; `this` is only stored for dialog centering, never
+    // invoked on here, so building it in a field initializer (before the
+    // subclass constructor body runs) is safe.
+    private final PasswordResolver.PasswordPrompt passwordPrompt = new SwingPasswordPrompt(this);
+
     /** Directory the file chooser last navigated to; null opens to its own default. */
     private File lastDirectory;
     private int currentPage;
@@ -95,11 +103,23 @@ public abstract class AbstractPdfViewerApp extends JFrame {
      * {@link PasswordResolver.PasswordEntryCancelledException} (or let it
      * propagate) if the user cancels the password prompt.
      *
-     * <p>Implementations should pass {@link #isBytePatchEnabled()} through to
-     * {@link PasswordResolver#resolve}, so the checkbox in the shared top
-     * panel controls both engines the same way.</p>
+     * <p>Implementations should pass {@link #passwordPrompt()} and
+     * {@link #isBytePatchEnabled()} through to {@link PasswordResolver#resolve},
+     * so the shared top panel's checkbox - and this app's one Swing-based
+     * {@link PasswordResolver.PasswordPrompt} - control both engines the
+     * same way.</p>
      */
     protected abstract DocumentSummary openDocument(File file) throws Exception;
+
+    /**
+     * This app's Swing dialog-based password prompt, shared by both viewer
+     * engines. {@link PasswordResolver} itself doesn't know this is Swing -
+     * it only sees the {@link PasswordResolver.PasswordPrompt} interface, so
+     * the same resolver class works unchanged in a non-Swing project too.
+     */
+    protected final PasswordResolver.PasswordPrompt passwordPrompt() {
+        return passwordPrompt;
+    }
 
     /**
      * Whether {@link PasswordResolver} should apply its known-bug byte patch

@@ -33,14 +33,6 @@
 import com.lowagie.text.exceptions.BadPasswordException;
 import com.lowagie.text.pdf.PdfReader;
 
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JPasswordField;
-import javax.swing.SwingUtilities;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -50,9 +42,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Opens a PDF with OpenPDF's {@link PdfReader}, prompting the user for a
- * password (up to {@link #MAX_ATTEMPTS} times) if the document requires one -
- * and, along the way, works around a known OpenPDF 1.3.x parsing bug (see
+ * Opens a PDF with OpenPDF's {@link PdfReader}, asking the caller for a
+ * password (up to {@link #MAX_ATTEMPTS} times, via the {@link PasswordPrompt}
+ * it supplies) if the document requires one - and, along the way, works
+ * around a known OpenPDF 1.3.x parsing bug (see
  * {@link #patchOutOfRangePermissions}) that makes some PDFs with no real
  * password at all falsely appear password-protected.
  *
@@ -60,20 +53,24 @@ import java.util.regex.Pattern;
  * release with a fix for that bug (it reproduces as far forward as 1.3.43),
  * so this class exists to be copied wholesale into other projects hitting
  * the same problem, rather than depended on as a library. It has no
- * dependency on anything else from its origin project - only OpenPDF and
- * the JDK - so copying this one file is enough. See the license header
- * above for the (permissive, attribution-only) terms that travel with it.</p>
+ * dependency on anything else from its origin project, and no UI toolkit
+ * dependency at all (not Swing, not anything else) - only OpenPDF and the
+ * JDK - so it works the same in a desktop app, a web backend, or a
+ * command-line tool; copying this one file is enough. See the license
+ * header above for the (permissive, attribution-only) terms that travel
+ * with it.</p>
  *
- * <p>If your project doesn't use Swing, the only part of this class you
- * actually need is {@link #patchOutOfRangePermissions}, which is a pure
- * {@code byte[] -> byte[]} transform with no UI dependency at all; you can
- * lift just that method (and the two {@code Pattern}s and
- * {@code ENCRYPT_DICT_SEARCH_WINDOW}/{@code padWithZeros} it uses) out and
- * call it yourself before your own {@code PdfReader} open attempt.</p>
+ * <p>If you don't need interactive password prompting at all, the only part
+ * of this class you actually need is {@link #patchOutOfRangePermissions},
+ * which is a pure {@code byte[] -> byte[]} transform with no other
+ * dependency; you can lift just that method (and the two {@code Pattern}s
+ * and {@code ENCRYPT_DICT_SEARCH_WINDOW}/{@code padWithZeros} it uses) out
+ * and call it yourself before your own {@code PdfReader} open attempt.</p>
  */
 public final class PasswordResolver {
 
-    private static final int MAX_ATTEMPTS = 5;
+    /** How many times {@link #resolve} will ask {@link PasswordPrompt} for a password before giving up. */
+    public static final int MAX_ATTEMPTS = 5;
 
     /** Matches the encryption dictionary's filter name, to scope the /P search below to it. */
     private static final Pattern STANDARD_SECURITY_HANDLER = Pattern.compile("/Filter\\s*/Standard");
@@ -87,6 +84,29 @@ public final class PasswordResolver {
     private PasswordResolver() {
     }
 
+    /**
+     * Supplies passwords to try, one call per attempt. Has no dependency on
+     * any particular UI toolkit (or any UI at all): implement it however
+     * fits your project - a Swing dialog, a web request/response round trip,
+     * a console prompt via {@code System.console()}, a fixed password read
+     * from configuration, etc. {@link #resolve} calls this synchronously, on
+     * whatever thread it itself was called from; if your implementation
+     * needs to hop to another thread (e.g. a UI thread) to ask, do that
+     * inside the implementation and block until it has an answer.
+     */
+    @FunctionalInterface
+    public interface PasswordPrompt {
+        /**
+         * @param fileName             name of the file being opened, for display purposes
+         * @param attempt              1-based attempt number (never more than {@link #MAX_ATTEMPTS})
+         * @param previousAttemptFailed {@code true} if this isn't the first attempt and the
+         *                             previous password was rejected
+         * @return password characters to try next, or {@code null} to give up (surfaced from
+         *         {@link #resolve} as {@link PasswordEntryCancelledException})
+         */
+        char[] getPassword(String fileName, int attempt, boolean previousAttemptFailed);
+    }
+
     /** Result of successfully opening a document: the reader, and the password that worked (null if none was needed). */
     public static final class Resolved {
         public final PdfReader reader;
@@ -98,34 +118,34 @@ public final class PasswordResolver {
         }
     }
 
-    /** Thrown when the user cancels a password prompt instead of entering one. */
+    /** Thrown when the {@link PasswordPrompt} returns {@code null} instead of a password. */
     public static final class PasswordEntryCancelledException extends IOException {
     }
 
     /**
-     * Equivalent to {@link #resolve(Component, File, boolean)} with
+     * Equivalent to {@link #resolve(File, PasswordPrompt, boolean)} with
      * {@code applyKnownBugPatch} set to {@code true} - the common case.
      */
-    public static Resolved resolve(Component parent, File file) throws IOException {
-        return resolve(parent, file, true);
+    public static Resolved resolve(File file, PasswordPrompt passwordPrompt) throws IOException {
+        return resolve(file, passwordPrompt, true);
     }
 
     /**
-     * Runs on a background thread. Tries to open the PDF without a password
-     * first; if OpenPDF signals that a password is required, repeatedly asks
-     * the user (on the EDT, via a modal dialog) until it opens, the user
-     * cancels ({@link PasswordEntryCancelledException}), or the attempt limit
-     * is reached ({@link IOException}).
+     * Tries to open the PDF without a password first; if OpenPDF signals
+     * that a password is required, repeatedly asks {@code passwordPrompt}
+     * (up to {@link #MAX_ATTEMPTS} times) until it opens, the prompt returns
+     * {@code null} ({@link PasswordEntryCancelledException}), or the attempt
+     * limit is reached ({@link IOException}).
      *
-     * @param parent             component to center password dialogs on
      * @param file               the PDF file to open
+     * @param passwordPrompt     supplies a password to try for each attempt; see {@link PasswordPrompt}
      * @param applyKnownBugPatch whether to try {@link #patchOutOfRangePermissions} as
      *                           a fallback when the first, unmodified open attempt fails
      *                           with {@link BadPasswordException}. Pass {@code false} to
      *                           skip straight to prompting instead - e.g. to test whether
      *                           a patched OpenPDF build no longer needs this workaround.
      */
-    public static Resolved resolve(Component parent, File file, boolean applyKnownBugPatch) throws IOException {
+    public static Resolved resolve(File file, PasswordPrompt passwordPrompt, boolean applyKnownBugPatch) throws IOException {
         byte[] originalBytes = Files.readAllBytes(file.toPath());
         try {
             return new Resolved(new PdfReader(originalBytes), null);
@@ -142,9 +162,9 @@ public final class PasswordResolver {
                 }
             }
 
-            String message = null;
+            boolean previousAttemptFailed = false;
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-                char[] password = promptForPassword(parent, file.getName(), message);
+                char[] password = passwordPrompt.getPassword(file.getName(), attempt, previousAttemptFailed);
                 if (password == null) {
                     throw new PasswordEntryCancelledException();
                 }
@@ -152,7 +172,7 @@ public final class PasswordResolver {
                 try {
                     return new Resolved(new PdfReader(originalBytes, bytes), bytes);
                 } catch (BadPasswordException wrongPassword) {
-                    message = "Incorrect password. Please try again.";
+                    previousAttemptFailed = true;
                 }
             }
             throw new IOException("Too many incorrect password attempts.");
@@ -234,34 +254,6 @@ public final class PasswordResolver {
             padded.append('0');
         }
         return padded.append(digits).toString();
-    }
-
-    /** Must be invoked from a background thread; blocks until the EDT dialog is dismissed. */
-    private static char[] promptForPassword(Component parent, String fileName, String errorMessage) {
-        final char[][] result = new char[1][];
-        try {
-            SwingUtilities.invokeAndWait(() -> {
-                JPasswordField passwordField = new JPasswordField(20);
-                JPanel panel = new JPanel(new BorderLayout(0, 6));
-                String prompt = "\"" + fileName + "\" is password protected.\nEnter the password to open it:";
-                panel.add(new JLabel("<html>" + prompt.replace("\n", "<br>") + "</html>"), BorderLayout.NORTH);
-                panel.add(passwordField, BorderLayout.CENTER);
-                if (errorMessage != null) {
-                    JLabel error = new JLabel(errorMessage);
-                    error.setForeground(Color.RED);
-                    panel.add(error, BorderLayout.SOUTH);
-                }
-
-                int option = JOptionPane.showConfirmDialog(
-                        parent, panel, "Password required",
-                        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-
-                result[0] = option == JOptionPane.OK_OPTION ? passwordField.getPassword() : null;
-            });
-        } catch (Exception e) {
-            result[0] = null;
-        }
-        return result[0];
     }
 
     private static byte[] toBytes(char[] chars) {

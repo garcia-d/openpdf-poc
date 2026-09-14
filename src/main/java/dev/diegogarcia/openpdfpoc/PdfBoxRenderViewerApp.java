@@ -60,7 +60,7 @@ public class PdfBoxRenderViewerApp extends AbstractPdfViewerApp {
 
     @Override
     protected DocumentSummary openDocument(File file) throws Exception {
-        PasswordResolver.Resolved resolved = PasswordResolver.resolve(this, file, isBytePatchEnabled());
+        PasswordResolver.Resolved resolved = PasswordResolver.resolve(file, passwordPrompt(), isBytePatchEnabled());
         try {
             boolean encrypted = resolved.reader.isEncrypted();
             Map<String, String> info = resolved.reader.getInfo();

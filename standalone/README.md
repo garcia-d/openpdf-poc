@@ -19,13 +19,19 @@ in-memory, before handing them to `PdfReader`.
 2. Make sure your project already depends on OpenPDF (`1.3.x`) and
    BouncyCastle the same way this repo's `build.gradle` does - this file
    needs nothing else. It has no dependency on any other class from this
-   repo.
-3. Call `PasswordResolver.resolve(parentComponent, file)` to open a PDF,
-   prompting via a Swing dialog if it turns out to need a password. If your
-   project isn't Swing-based, lift out just
+   repo, and no dependency on Swing or any other UI toolkit.
+3. Call `PasswordResolver.resolve(file, passwordPrompt)`, where
+   `passwordPrompt` is your own implementation of the
+   `PasswordResolver.PasswordPrompt` functional interface - a single method
+   that's asked for a password once per attempt (up to
+   `PasswordResolver.MAX_ATTEMPTS` times) and returns `null` to give up.
+   Implement it however fits your project: a Swing dialog, a web
+   request/response round trip, a console prompt via `System.console()`, a
+   password read from configuration, etc. If you don't need interactive
+   prompting at all, lift out just
    `PasswordResolver.patchOutOfRangePermissions(byte[])` instead - it's a
-   pure `byte[] -> byte[]` transform with no UI dependency, and is the only
-   part of this class that actually fixes the bug.
+   pure `byte[] -> byte[]` transform with no other dependency, and is the
+   only part of this class that actually fixes the bug.
 
 ## License
 
